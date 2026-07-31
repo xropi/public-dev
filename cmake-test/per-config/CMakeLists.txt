@@ -12,7 +12,7 @@ add_executable(app src/main.cpp)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>")
 
 # The destination itself carries $<CONFIG>, so no two configs ever write the
-# same file. That is the whole difference from the parent sample: cross-config
+# same file. That is the whole difference from output-rule/: cross-config
 # staleness stops being a scheduling problem the generator has to get right and
 # becomes structurally impossible. Debug and Release stay independently
 # runnable, with no rebuild needed between them.
@@ -22,7 +22,7 @@ set(ini_dst "${CMAKE_BINARY_DIR}/$<CONFIG>/x.ini")
 # MinSizeRel land on the release ini instead of getting nothing.
 set(ini_src "$<IF:$<CONFIG:Debug>,${CMAKE_CURRENT_SOURCE_DIR}/src/xd.ini,${CMAKE_CURRENT_SOURCE_DIR}/src/xr.ini>")
 
-# An OUTPUT rule is safe again here — unlike in the parent sample, each config
+# An OUTPUT rule is safe again here — unlike in output-rule/, each config
 # owns its own output path, so no generator's per-config up-to-date tracking can
 # be confused by what another config did to the file. Being a real dependency
 # edge is what makes editing an ini restage it on the next build; a POST_BUILD

@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 add_executable(app src/main.cpp)
 
 # The ini lives at the binary root, shared by every config — same destination as
-# the parent sample. What changes is how the copy is scheduled.
+# output-rule/. What changes is how the copy is scheduled.
 set(ini_dst "${CMAKE_BINARY_DIR}/x.ini")
 
 # Which ini this config wants. $<CONFIG:Debug> matches case-insensitively and is
@@ -19,7 +19,7 @@ set(ini_src "$<IF:$<CONFIG:Debug>,${CMAKE_CURRENT_SOURCE_DIR}/src/xd.ini,${CMAKE
 # whole point of this variant: a target has no up-to-date check, so its command
 # runs on every build in every generator.
 #
-# The parent sample's OUTPUT rule only re-copies when the generator notices the
+# output-rule/'s OUTPUT rule only re-copies when the generator notices the
 # rule is dirty. Ninja Multi-Config notices because its single shared .ninja_log
 # is keyed by output path and records the command line, so switching config is a
 # command change. MSBuild's tracking is per-config .tlog files compared by

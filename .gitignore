@@ -1,0 +1,33 @@
+# custom scratch files
+**/+*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# CMake / build
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Compiled outputs
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.exe
+
+# IDEs
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db

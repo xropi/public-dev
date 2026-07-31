@@ -1,15 +1,17 @@
-# A second subproject, staging a differently-named file into a subdirectory of
-# the binary root -- the point being that it shares proj-a's staging target
-# without either knowing about the other, and that stagekit creates the
-# destination directory.
+# A second subproject, sharing proj-a's staging target without either knowing
+# about the other, and staging into a subdirectory of the binary root to show
+# that stagekit creates the destination directory. Also standalone-buildable.
+cmake_minimum_required(VERSION 3.21)
+project(proj-b CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+
+include(${CMAKE_CURRENT_LIST_DIR}/../cmake/stagekit.cmake)
+
 add_executable(app-b src/main.cpp)
 
-set(dst "${CMAKE_BINARY_DIR}/data/cfg.txt")
-
-stage_file(
+stage_file(app-b
     "$<IF:$<CONFIG:Debug>,${CMAKE_CURRENT_SOURCE_DIR}/src/cd.txt,${CMAKE_CURRENT_SOURCE_DIR}/src/cr.txt>"
-    "${dst}")
+    "${CMAKE_BINARY_DIR}/data/cfg.txt")
 
-add_dependencies(app-b stage_files)
-
-target_compile_definitions(app-b PRIVATE INI_PATH="${dst}")
+target_compile_definitions(app-b PRIVATE INI_PATH="${CMAKE_BINARY_DIR}/data/cfg.txt")

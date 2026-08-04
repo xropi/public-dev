@@ -12,8 +12,8 @@ Everything recorded here was measured on **Ninja Multi-Config, CMake 4.2.3,
 Linux**, except where an entry says otherwise. The Visual Studio side is the
 main gap and is tracked in Open.
 
-Defects go in `bugs.md` (B*, not created yet), deferred features in `backlog.md`
-(BL*, not created yet).
+Defects go in `bugs.md` (B*), deferred features in `backlog.md` (BL*, not created
+yet).
 
 ---
 
@@ -205,6 +205,8 @@ were subfolders, which read as "the real one plus some variants" and left the
 root a mix of files and folders. They are peers. Mechanism names keep the
 comparison legible from `ls` alone and do not imply a ranking or an order.
 
+**Extended by D15:** the uniform script set is four files, not three.
+
 ### D13. `stage_file()` takes a file *or* a directory
 
 **Decision:** the source may be either, with no second entry point and no flag —
@@ -241,10 +243,9 @@ directory half is D14.
 
 **Known limit, inherited rather than introduced: orphans are not removed.** A
 file deleted from the source tree keeps its staged copy until `build/` is wiped.
-True mirroring would mean deleting `<dst>` first, which costs the incremental
-skip on every build — a bad trade for a target that has no up-to-date check (D5)
-and therefore runs every time. Every candidate mechanism behaves this way, so
-nothing was given up by the choice among them.
+Every candidate mechanism behaves this way, so nothing was given up by the choice
+among them. **Lifted by D16**, which makes it a per-call decision via a required
+`del_stale` argument.
 
 ### D14. Directories are copied by `-E copy_directory_if_different`
 
@@ -287,6 +288,82 @@ load-bearing — empty directories are now staged (`GLOB_RECURSE` yielded only
 files), and dotfiles are still staged, as they were under the glob (both
 measured).
 
+### D15. `gen-vs2022.bat` in every folder, into `+build-vs2022/`
+
+**Decision:** each of the four folders carries the same `gen-vs2022.bat`,
+configuring `-G "Visual Studio 17 2022"` into `+build-vs2022/` — a *second* tree
+beside the Ninja `build/`, not a replacement for it.
+
+**Rationale:** O1 and O2 are the only unmeasured claims in this record, and they
+are open purely because running them takes a Windows machine. Reducing that to
+"double-click, open the .sln, build three times" is the difference between a
+question that gets answered and one that stays open — `stagekit/` already had
+this script and the other three did not, which is backwards, since `output-rule/`
+is the variant with an actual *prediction* riding on VS (D4).
+
+Separate trees rather than one reconfigured in place: a generator cannot be
+changed in an existing build directory, so sharing `build/` would mean wiping it
+on every switch between the `.sh` scripts and the IDE — and the harness's whole
+method is running the variants repeatedly. The `+` prefix makes it gitignored by
+the repo-wide `**/+*` with no per-folder rule, matching the scratch-file
+convention.
+
+Uniform content across folders, including the `.sln` name in the comment header:
+one file to read, and any difference between folders is then a real difference
+rather than drift. Batch rather than PowerShell per the global scripting rule,
+and it stays a linear three lines.
+
+**Not decided here:** what the VS runs actually show. Until someone runs them,
+O1 and O2 stand exactly as written.
+
+### D16. `stage_file()` takes a required `del_stale`
+
+**Decision:** a fourth positional argument —
+`stage_file(<target> <src> <dst> <del_stale>)`, **required**, no default. ON
+makes a directory `<dst>` a mirror of `<src>`: anything in the destination that
+the source no longer has is deleted. OFF leaves those files, which is every copy
+tool's behaviour. This closes the "orphans are not removed" limit recorded in
+D13.
+
+**Why required rather than optional-defaulting-to-OFF.** Deletion is the one
+thing in this module that can destroy something a user put in `<dst>` on purpose,
+and `<dst>` may legitimately be shared — `build/` itself in the standalone mode
+of D11. A default would let a call *not say* which behaviour it wants, so the
+answer would live in the module rather than at the call site, exactly where a
+reader looks for it. Making it explicit costs one word per call, of which there
+are three in the whole tree, and CMake enforces it: a three-argument call is a
+hard configure error (*"Function invoked with incorrect arguments"*, verified),
+not a silent fallback.
+
+This is the same instinct as D10 folding `add_dependencies` into `stage_file()` —
+except inverted, because the cases differ. There, one behaviour was always
+correct, so the function should just do it; here both answers are legitimate, so
+the function should refuse to guess.
+
+**Why a positional rather than a keyword.** The whole interface is one function
+with three positionals (D9/D10); `cmake_parse_arguments` for a single boolean
+would be more machinery than the module has anywhere else.
+
+**Why prune after copying rather than wipe before it.** `file(REMOVE_RECURSE
+"${dst}")` ahead of the copy is one line and obviously correct, but it makes
+every build a full recopy — and `stage_files` has no up-to-date check (D5), so
+that cost lands on *every* build, not just ones where something changed. It
+would put a performance cliff behind a flag whose name says nothing about
+copying. Pruning keeps the content-compared incremental copy of D14 and adds
+five lines. `LIST_DIRECTORIES true` on the glob is what lets a single
+`REMOVE_RECURSE` take a vanished subtree whole instead of leaving empty
+directories behind — the wart that a files-only prune would have.
+
+**It means nothing for a file source**, where `<dst>` *is* the file and
+`COPY_FILE` replaces it; the parameter is accepted and ignored there rather than
+being an error, since whether `<src>` is a file is only known at build time and
+a build-time warning would fire on every build.
+
+**Measured**, all four behaviours: a debug-only file staged under Debug is gone
+after a Release build and back after the next Debug one; a hand-planted
+`junkdir/inner/x` subtree is removed whole; a hand-planted orphan next to a
+`del_stale`-OFF destination survives.
+
 ---
 
 ## Open
@@ -296,15 +373,20 @@ measured).
 The MSBuild failure described in D4 follows from per-config `.tlog` tracking
 compared by timestamp, but the specific sequence has not been reproduced. The
 check is: build Debug, build Release, build Debug again, then look at whether
-`build/x.ini` says `flavor = debug`. Note that D5 working under VS 2022 does
-*not* confirm this — `always-run/` would work either way.
+`+build-vs2022/x.ini` says `flavor = debug`. Note that D5 working under VS 2022
+does *not* confirm this — `always-run/` would work either way.
+
+`gen-vs2022.bat` (D15) configures the tree; nothing else is needed to run it.
 
 ### O2. `per-config/` and `stagekit/` are unverified outside Ninja
 
 `per-config/` should be the safest of all four (no shared destination for any
 generator's tracking to get wrong), and `stagekit/` relies on `cmake_language(DEFER)`
 and cross-directory `add_dependencies`, both generator-independent in principle.
-Neither has been run under Visual Studio.
+Neither has been run under Visual Studio; `gen-vs2022.bat` (D15) is there to
+make that a short job. For `stagekit/` the interesting part is not the copying
+but F5 with *"Only build startup projects and dependencies on Run"*, which is
+the case D10's `add_dependencies` exists for.
 
 ### O3. Per-project staging targets instead of one global target
 

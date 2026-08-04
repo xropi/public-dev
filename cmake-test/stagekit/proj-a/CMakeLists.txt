@@ -17,6 +17,7 @@ add_executable(app-a src/main.cpp)
 # from above and proj-a/build when built standalone -- correct either way.
 stage_file(app-a
     "$<IF:$<CONFIG:Debug>,${CMAKE_CURRENT_SOURCE_DIR}/src/xd.ini,${CMAKE_CURRENT_SOURCE_DIR}/src/xr.ini>"
-    "${CMAKE_BINARY_DIR}/x.ini")
+    "${CMAKE_BINARY_DIR}/x.ini"
+    OFF)
 
 target_compile_definitions(app-a PRIVATE INI_PATH="${CMAKE_BINARY_DIR}/x.ini")

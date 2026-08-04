@@ -32,11 +32,13 @@ works by relying on a Ninja implementation detail. `stagekit` is the only
 multi-project example; the other three are single-app. It is also the only one
 that stages **directories** as well as single files (D13) — `proj-b` does both,
 and its `app-b` prints a nested file from the staged directory precisely to
-prove the descent happened.
+prove the descent happened. `proj-b/src/ad/debug-only.txt` exists in the debug
+tree and not the release one, so a config switch exercises `del_stale` (D16):
+after `./build-release.sh` it must be gone from `build/assets/`.
 
 ## Running and testing
 
-Every folder has the same three scripts. There is no test suite — the harness
+Every folder has the same four scripts. There is no test suite — the harness
 *is* the test, and it is run by hand:
 
 ```sh
@@ -49,6 +51,14 @@ cd always-run          # or any other
 
 The scripts wrap `build.sh <Config>`, which configures once with
 `-G "Ninja Multi-Config"` and then builds the requested config.
+
+The fourth is `gen-vs2022.bat`, the **Windows** half: it configures a Visual
+Studio 17 2022 tree into `+build-vs2022/` beside the Ninja `build/`, so the two
+coexist and neither script has to clean up after the other. Run it, open the
+`.sln`, and drive the same Debug → Release → Debug sequence from the IDE. That
+is the whole procedure for closing O1 and O2, which are open only because nobody
+has run it — everything else here is already measured. The `+` prefix is what
+keeps the tree out of git (`**/+*` in the repo `.gitignore`).
 
 Binary locations differ: `output-rule` and `always-run` put it at
 `build/<Config>/app`, `per-config` likewise but with the ini beside it, and
@@ -97,9 +107,11 @@ tree, where `--config` is ignored and the binary lands at `build/app-a`.
 - **`file(COPY)` skips by timestamp, not content** — and per-config source trees
   come out of a git checkout with identical mtimes, so it silently keeps the
   previous config's files. That is why `stagekit` stages directories with
-  `-E copy_directory_if_different`, which compares content (D13/D14). It does not
-  delete orphans, though, so a file removed from a source tree survives in
-  `build/` until it is wiped.
+  `-E copy_directory_if_different`, which compares content (D13/D14).
+- **No copy tool here deletes**, so a file removed from a source tree survives in
+  the destination. `stage_file()`'s fourth argument `del_stale` prunes it when
+  ON. It is **required** — there is no default, and a three-argument call is a
+  configure error (D16). It means nothing for a single-file destination.
 - Minimum CMake differs by folder: **3.26** for `stagekit`
   (`-E copy_directory_if_different`, D14; `file(COPY_FILE)` needs 3.21 and
   `cmake_language(DEFER)` only 3.19), **3.20** for the other three (`per-config`

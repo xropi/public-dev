@@ -4,9 +4,11 @@
 #
 #     include(${CMAKE_CURRENT_LIST_DIR}/../cmake/stagekit.cmake)
 #     add_executable(app-a src/main.cpp)
-#     stage_file(app-a "<src, may contain $<CONFIG> genexes>" "<dst>")
+#     stage_file(app-a "<src, may contain $<CONFIG> genexes>" "<dst>" <del_stale>)
 #
-# <src> may be a file or a directory; <dst> is what you get either way.
+# <src> may be a file or a directory; <dst> is what you get either way. del_stale
+# is ON to make a directory <dst> a mirror, deleting what <src> no longer has,
+# and OFF to leave those files alone; see stage_file() below.
 #
 # That is the whole interface. There is no init call to place before the
 # add_subdirectory list and no finalize call to place after it, so there is no
@@ -68,19 +70,28 @@ function(_stage_ensure)
     cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL stage_finalize)
 endfunction()
 
+# stage_file(<target> <src> <dst> <del_stale>)
+#
 # Register one file or directory to stage, and make <target> wait for the
 # staging. A directory's *contents* land in <dst>, so <dst> is what you asked
-# for in both cases; the walking happens in _stage() inside the script.
+# for in both cases; the branching happens in _stage() inside the script.
+#
+# del_stale decides what happens to files sitting in <dst> that the source no
+# longer has -- renamed, deleted, or left over from a different source tree. OFF
+# leaves them, which is every copy tool's default. ON makes <dst> a mirror of
+# <src>. It is required rather than defaulted, so that every call says which it
+# wants (D16). It only means anything for a directory source; for a single file,
+# <dst> *is* the file and there is nothing else to be stale.
 #
 # The add_dependencies is not optional: ALL only puts stage_files in the default
 # build, so `cmake --build . --target app-a` -- and VS's "only build startup
 # project and dependencies on Run" -- would otherwise skip staging entirely and
 # launch the app against a stale or missing file.
-function(stage_file target src dst)
+function(stage_file target src dst del_stale)
     _stage_ensure()
 
     set_property(GLOBAL APPEND PROPERTY stage_lines
-        "_stage([[${src}]] [[${dst}]])")
+        "_stage([[${src}]] [[${dst}]] ${del_stale})")
 
     add_dependencies(${target} stage_files)
 endfunction()
@@ -103,14 +114,28 @@ endfunction()
 # The branch stays because copy_directory_if_different errors on a file source,
 # and COMMAND_ERROR_IS_FATAL is needed because execute_process otherwise reports
 # failure only through a variable nobody reads.
+#
+# del_stale prunes after copying rather than wiping <dst> before it (D16): a wipe
+# is one line, but it turns every build into a full recopy, and this target has
+# no up-to-date check to save it. LIST_DIRECTORIES true is what lets one
+# REMOVE_RECURSE take a vanished subtree whole.
 function(stage_finalize)
     set(preamble [==[
-function(_stage src dst)
+function(_stage src dst del_stale)
     if(IS_DIRECTORY "${src}")
         execute_process(
             COMMAND "${CMAKE_COMMAND}" -E copy_directory_if_different "${src}" "${dst}"
             COMMAND_ERROR_IS_FATAL ANY)
+        if(del_stale)
+            file(GLOB_RECURSE staged LIST_DIRECTORIES true RELATIVE "${dst}" "${dst}/*")
+            foreach(n IN LISTS staged)
+                if(NOT EXISTS "${src}/${n}")
+                    file(REMOVE_RECURSE "${dst}/${n}")
+                endif()
+            endforeach()
+        endif()
     else()
+        # del_stale says nothing here: dst is the file, and COPY_FILE replaces it
         get_filename_component(d "${dst}" DIRECTORY)
         file(MAKE_DIRECTORY "${d}")
         file(COPY_FILE "${src}" "${dst}" ONLY_IF_DIFFERENT)

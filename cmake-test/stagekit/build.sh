@@ -16,4 +16,4 @@ cmake --build build --config "$config" "$@"
 
 # subproject binaries land under build/<project>/<config>/, not build/<config>/
 echo "built: build/proj-a/$config/app-a, build/proj-b/$config/app-b"
-echo "staged by build/stage-$config.cmake -> build/x.ini, build/data/cfg.txt"
+echo "staged by build/stage-$config.cmake -> build/x.ini, build/data/cfg.txt, build/assets/"

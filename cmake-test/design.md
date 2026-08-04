@@ -205,6 +205,88 @@ were subfolders, which read as "the real one plus some variants" and left the
 root a mix of files and folders. They are peers. Mechanism names keep the
 comparison legible from `ls` alone and do not imply a ranking or an order.
 
+### D13. `stage_file()` takes a file *or* a directory
+
+**Decision:** the source may be either, with no second entry point and no flag —
+`stage_file(app-b "<dir>" "${CMAKE_BINARY_DIR}/assets")` puts the *contents* of
+`<dir>` at `<dst>`, so `<dst>` is what the caller asked for in both cases. The
+generated script gains a `_stage(src dst)` preamble function; each registered
+entry is now a one-line call into it.
+
+**Rationale, three parts:**
+
+*Why the test lives in the generated script.* `IS_DIRECTORY` cannot be evaluated
+in `stage_file()`, because a source holding a `$<CONFIG>` genex (D2 — the normal
+case here) is still unresolved text at configure time and the test is
+unconditionally false. Inside the script the genex is already a real path. This
+is D8's argument reused: the script is where you have a real language *after*
+the generator expressions are gone.
+
+*Why a preamble function rather than an inlined branch per entry.* The branch is
+~7 lines; emitting it per entry makes the script grow with the file count for no
+benefit. One function plus N call lines keeps the generated artifact readable —
+it stays diffable by eye, which matters for a harness meant to be read. The
+preamble is a literal **inside** `stage_finalize` rather than a variable beside
+it: that function runs deferred in the root directory scope (D9), which cannot
+see a variable set where the module was included, i.e. in a subproject.
+
+*Why not `file(COPY)`, which already does directories.* Because it decides what
+is up to date by **timestamp**, and two per-config source trees have identical
+mtimes after a git checkout (git sets them all to checkout time). Measured
+directly: with `ad/` and `ar/` created in the same second, a full Release build
+left `build/assets/` on the debug copy — silently, which is precisely the
+staleness the whole harness exists to prevent. **Content comparison is therefore
+the requirement**, not a preference; which content-comparing mechanism does the
+directory half is D14.
+
+**Known limit, inherited rather than introduced: orphans are not removed.** A
+file deleted from the source tree keeps its staged copy until `build/` is wiped.
+True mirroring would mean deleting `<dst>` first, which costs the incremental
+skip on every build — a bad trade for a target that has no up-to-date check (D5)
+and therefore runs every time. Every candidate mechanism behaves this way, so
+nothing was given up by the choice among them.
+
+### D14. Directories are copied by `-E copy_directory_if_different`
+
+**Decision:** the directory half of `_stage()` is one call —
+
+```cmake
+execute_process(
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory_if_different "${src}" "${dst}"
+    COMMAND_ERROR_IS_FATAL ANY)
+```
+
+— rather than a `file(GLOB_RECURSE)` walk that recurses into itself and copies
+each file with `file(COPY_FILE ... ONLY_IF_DIFFERENT)`. The floor rises from
+**3.21 to 3.26** accordingly, in all three `CMakeLists.txt` and in CLAUDE.md.
+
+**Rationale:** it satisfies D13's content-comparison requirement — measured on
+CMake 4.2.3 with two directory trees sharing mtimes and differing in content,
+including nested files. Given that, the recursion bought nothing but its own
+explanation, and **clarity is the point of this harness**: five lines of walk,
+glob semantics and self-recursion versus one named command that says what it
+does. The generated script is meant to be read.
+
+The floor was the only real objection and it is not one here — this machine runs
+4.2.3, and CMake 3.26 is from March 2023. This is a comparison harness that
+nothing depends on (D12), so it is also the cheapest possible place to hold a
+newer floor.
+
+The `IS_DIRECTORY` branch stays: `copy_directory_if_different` errors on a file
+source (measured, exit 1), so it cannot serve both halves.
+`COMMAND_ERROR_IS_FATAL ANY` is not optional either — `execute_process` reports
+failure only through `RESULT_VARIABLE`, so without it a failed copy would be
+silent, whereas `file(COPY_FILE)` aborts the script on its own.
+
+**Cost, accepted:** one subprocess per staged *directory*, where the walk stayed
+inside the single `cmake -P` of D8. It is bounded by directory count, not file
+count, so it does not reintroduce the process-per-file growth D8 was about.
+
+**Consequence:** the walk's incidental properties are gone, and neither was
+load-bearing — empty directories are now staged (`GLOB_RECURSE` yielded only
+files), and dotfiles are still staged, as they were under the glob (both
+measured).
+
 ---
 
 ## Open
@@ -252,3 +334,7 @@ The target is created by whichever directory calls `stage_file()` first. This is
 functionally invisible — `ALL` propagates to the root and `add_dependencies`
 works across directories — but it is real, and it would matter if anything ever
 queried the target's directory properties.
+
+### O6. `cmake -E copy_directory_if_different` instead of the D13 recursion
+
+Decided → see D14.

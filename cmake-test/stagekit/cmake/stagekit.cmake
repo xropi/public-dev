@@ -6,6 +6,8 @@
 #     add_executable(app-a src/main.cpp)
 #     stage_file(app-a "<src, may contain $<CONFIG> genexes>" "<dst>")
 #
+# <src> may be a file or a directory; <dst> is what you get either way.
+#
 # That is the whole interface. There is no init call to place before the
 # add_subdirectory list and no finalize call to place after it, so there is no
 # ordering rule for a later add_subdirectory to violate -- which was the one
@@ -33,6 +35,12 @@
 # - One `cmake -P` runs per build regardless of file count, because the copies
 #   are emitted into a generated per-config script rather than spliced into the
 #   target as one COMMAND per file.
+#
+# - The file-or-directory test is emitted into that script rather than performed
+#   here, because a <src> holding a $<CONFIG> genex is still unresolved text at
+#   configure time and IS_DIRECTORY on it is unconditionally false. A directory
+#   costs one extra process, which is why the count above says "per build" for
+#   files and not for directories.
 
 include_guard(GLOBAL)
 
@@ -60,7 +68,9 @@ function(_stage_ensure)
     cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL stage_finalize)
 endfunction()
 
-# Register one file to stage, and make <target> wait for the staging.
+# Register one file or directory to stage, and make <target> wait for the
+# staging. A directory's *contents* land in <dst>, so <dst> is what you asked
+# for in both cases; the walking happens in _stage() inside the script.
 #
 # The add_dependencies is not optional: ALL only puts stage_files in the default
 # build, so `cmake --build . --target app-a` -- and VS's "only build startup
@@ -70,9 +80,7 @@ function(stage_file target src dst)
     _stage_ensure()
 
     set_property(GLOBAL APPEND PROPERTY stage_lines
-        "get_filename_component(d [[${dst}]] DIRECTORY)"
-        "file(MAKE_DIRECTORY \"\${d}\")"
-        "file(COPY_FILE [[${src}]] [[${dst}]] ONLY_IF_DIFFERENT)")
+        "_stage([[${src}]] [[${dst}]])")
 
     add_dependencies(${target} stage_files)
 endfunction()
@@ -81,10 +89,37 @@ endfunction()
 # file(GENERATE) evaluates the generator expressions per config and writes one
 # script per config -- which is what it is good at, unlike doing the copying
 # itself (it runs for all configs at once, so it cannot pick one source).
+#
+# The preamble is a literal inside the function rather than a variable beside
+# it: this runs deferred in the root directory scope, which never sees a
+# variable set where the module was included (a subproject, in general).
+#
+# Both halves of _stage compare *content*, never timestamps -- which is the
+# whole correctness requirement here, since two per-config source trees come out
+# of a git checkout with identical mtimes and a timestamp comparison would then
+# leave the previous config's files in place. file(COPY) fails exactly that way
+# and is not used (D14); `-E copy_directory_if_different` does not.
+#
+# The branch stays because copy_directory_if_different errors on a file source,
+# and COMMAND_ERROR_IS_FATAL is needed because execute_process otherwise reports
+# failure only through a variable nobody reads.
 function(stage_finalize)
+    set(preamble [==[
+function(_stage src dst)
+    if(IS_DIRECTORY "${src}")
+        execute_process(
+            COMMAND "${CMAKE_COMMAND}" -E copy_directory_if_different "${src}" "${dst}"
+            COMMAND_ERROR_IS_FATAL ANY)
+    else()
+        get_filename_component(d "${dst}" DIRECTORY)
+        file(MAKE_DIRECTORY "${d}")
+        file(COPY_FILE "${src}" "${dst}" ONLY_IF_DIFFERENT)
+    endif()
+endfunction()
+]==])
     get_property(lines GLOBAL PROPERTY stage_lines)
     list(JOIN lines "\n" content)
     file(GENERATE
         OUTPUT "${CMAKE_BINARY_DIR}/stage-$<CONFIG>.cmake"
-        CONTENT "${content}\n")
+        CONTENT "${preamble}${content}\n")
 endfunction()

@@ -13,7 +13,7 @@
 # Each subproject is also configurable on its own (cmake -B build -S proj-a),
 # which is the normal mode for this monorepo's C++ projects, where every project
 # is its own top level and pulls siblings in via add_subdirectory.
-cmake_minimum_required(VERSION 3.21)  # file(COPY_FILE ... ONLY_IF_DIFFERENT)
+cmake_minimum_required(VERSION 3.26)  # -E copy_directory_if_different (D14)
 project(ini-stagekit CXX)
 
 set(CMAKE_CXX_STANDARD 20)

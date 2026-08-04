@@ -29,7 +29,10 @@ on the first recorded defect or deferred feature.
 
 `output-rule` is the baseline that started it all, not a recommendation — it
 works by relying on a Ninja implementation detail. `stagekit` is the only
-multi-project example; the other three are single-app.
+multi-project example; the other three are single-app. It is also the only one
+that stages **directories** as well as single files (D13) — `proj-b` does both,
+and its `app-b` prints a nested file from the staged directory precisely to
+prove the descent happened.
 
 ## Running and testing
 
@@ -91,10 +94,16 @@ tree, where `--config` is ignored and the binary lands at `build/app-a`.
 - **Running an executable stages nothing.** Only a build does. So with a shared
   destination, switching the config in an IDE and hitting run does not restage
   unless the IDE builds first.
-- Minimum CMake differs by folder: **3.21** for `stagekit`
-  (`file(COPY_FILE ... ONLY_IF_DIFFERENT)`; its `cmake_language(DEFER)` needs
-  only 3.19), **3.20** for the other three (`per-config` needs it for `$<CONFIG>`
-  in a custom command `OUTPUT`).
+- **`file(COPY)` skips by timestamp, not content** — and per-config source trees
+  come out of a git checkout with identical mtimes, so it silently keeps the
+  previous config's files. That is why `stagekit` stages directories with
+  `-E copy_directory_if_different`, which compares content (D13/D14). It does not
+  delete orphans, though, so a file removed from a source tree survives in
+  `build/` until it is wiped.
+- Minimum CMake differs by folder: **3.26** for `stagekit`
+  (`-E copy_directory_if_different`, D14; `file(COPY_FILE)` needs 3.21 and
+  `cmake_language(DEFER)` only 3.19), **3.20** for the other three (`per-config`
+  needs it for `$<CONFIG>` in a custom command `OUTPUT`).
 
 ## Verification status
 

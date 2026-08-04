@@ -1,7 +1,7 @@
 # Buildable two ways: pulled in by ../CMakeLists.txt, or configured directly
 # (cmake -B build -S .) as its own top level. Nothing below is conditional on
 # which -- that is the point of the self-finalizing stagekit.
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.26)
 project(proj-a CXX)
 
 set(CMAKE_CXX_STANDARD 20)
